@@ -1,0 +1,36 @@
+1
+00:00:00,500 --> 00:00:03,200
+Welcome to Caption, a subtitle editor
+that runs entirely in your browser.
+
+2
+00:00:03,400 --> 00:00:06,100
+Open a video file and an .srt file
+to get started.
+
+3
+00:00:06,600 --> 00:00:09,000
+Click any cue to jump the video
+to that moment.
+
+4
+00:00:09,300 --> 00:00:12,800
+Drag the edges of a cue on the timeline
+below to adjust its timing.
+
+5
+00:00:13,000 --> 00:00:14,200
+Short cues like this one get flagged.
+
+6
+00:00:14,600 --> 00:00:19,500
+This line is intentionally quite long so that it trips the default forty-two character warning threshold.
+
+7
+00:00:19,800 --> 00:00:23,000
+When you're done, export as .srt or .vtt
+from the toolbar above.
+
+8
+00:00:23,300 --> 00:00:26,000
+That's it — happy editing!

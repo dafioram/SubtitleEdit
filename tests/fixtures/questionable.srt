@@ -1,0 +1,19 @@
+1
+00:00:01,000 --> 00:00:03,000
+|t's a test  with double space
+
+2
+00:00:03,500 --> 00:00:05,000
+l think the the answer is 42 .
+
+3
+00:00:05,500 --> 00:00:07,000
+He said "hello and/or goodbye
+
+4
+00:00:07,500 --> 00:00:09,000
+<i>This is fine</i>
+
+5
+00:00:09,500 --> 00:00:11,000
+g0od luck_mate

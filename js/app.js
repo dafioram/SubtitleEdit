@@ -1893,6 +1893,9 @@
       },
     });
 
+    // timeline labels are drawn on a canvas, so redraw once the fonts arrive
+    if (document.fonts) document.fonts.ready.then(() => timeline.render());
+
     wireToolbar();
     wireVideo();
     wireCueList();

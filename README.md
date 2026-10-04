@@ -2,7 +2,9 @@
 
 A static, no-build-step subtitle editor that runs entirely in the browser. Load a video,
 import an `.srt`, `.vtt`, `.ass` or `.ssa` file, and edit timing and text against a waveform
-timeline. Nothing is uploaded anywhere — the video and subtitles never leave your machine.
+timeline. Nothing is uploaded anywhere — the video and subtitles never leave your machine, and
+the app makes no requests to other sites (fonts are bundled), so it also works offline once
+loaded.
 
 ## Features
 
@@ -48,6 +50,22 @@ python3 -m http.server 8000
 or `npx serve .`, or the VS Code "Live Server" extension — anything that serves static
 files works.
 
+## Running the tests
+
+End-to-end tests drive the real app in headless browsers with
+[Playwright](https://playwright.dev). They need Node.js and Python 3 (used to serve the folder):
+
+```bash
+npm install
+npx playwright install chromium   # or: firefox, webkit (Safari's engine), or nothing for all
+npm test                           # all installed browsers
+npx playwright test --project=chromium
+```
+
+GitHub Actions runs them in Chromium, Firefox and WebKit on every pull request
+(`.github/workflows/test.yml`), and the deploy workflow only publishes when they pass. The
+site itself still has no build step — `package.json` exists only for the tests.
+
 ## Deploying to GitHub Pages
 
 **Option A — GitHub Actions (included, recommended)**
@@ -55,7 +73,7 @@ files works.
 1. Push this repository to GitHub.
 2. In the repo, go to **Settings → Pages** and set **Source** to **GitHub Actions**.
 3. Push to your default branch (or run the workflow manually from the **Actions** tab).
-   `.github/workflows/deploy.yml` builds nothing — it just publishes these files — and your
+   `.github/workflows/deploy.yml` runs the tests, then publishes these files as-is, and your
    site will be live at `https://<username>.github.io/<repo>/`. The workflow triggers on
    pushes to `main`; edit the `branches:` line in that file if your default branch is named
    differently (e.g. `master`).
@@ -68,13 +86,17 @@ files works.
 3. Save. Your site will be live at `https://<username>.github.io/<repo>/` within a minute
    or two.
 
-Either option works since there's nothing to compile — the site is served as-is.
+Either option works since there's nothing to compile — the site is served as-is. Option A is
+preferred: Option B publishes every push without waiting for the tests. Pick one — with the
+source set to "Deploy from a branch", the workflow in Option A would publish a second time.
 
 ## Project structure
 
 ```
 index.html
 css/styles.css
+css/fonts.css    self-hosted font definitions
+fonts/           Space Grotesk + JetBrains Mono (SIL Open Font License)
 js/
   utils.js       time/formatting helpers
   srt.js         .srt parsing + .srt/.vtt export
@@ -87,6 +109,7 @@ js/
   ui.js          toasts, modal dialogs, in-app confirm
   app.js         wires everything to the DOM
 sample/sample.srt
+tests/           Playwright end-to-end tests and fixture files
 ```
 
 ## Notes and limitations

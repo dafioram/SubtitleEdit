@@ -1,0 +1,44 @@
+name: Tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+  # also called by deploy.yml so a failing build is never published
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: End-to-end (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install test tools
+        run: npm ci
+
+      - name: Install ${{ matrix.browser }}
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run tests
+        run: npx playwright test --project=${{ matrix.browser }}
+
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: playwright-report
+          retention-days: 7

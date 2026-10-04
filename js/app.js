@@ -131,7 +131,7 @@
   const rowMap = new Map();
   let renderGeneration = 0;
   const CHUNK_THRESHOLD = 200; // only spread work across frames above this many new rows
-  const CHUNK_BUDGET_MS = 8; // time budget per frame while chunk-loading
+  const CHUNK_BUDGET_MS = 12; // time budget per batch while chunk-loading
 
   // Browsers with `field-sizing: content` grow each textarea to fit its
   // (wrapped) text in pure CSS; others need the JS measuring below.
@@ -320,10 +320,9 @@
   }
 
   // ---------- cue list rendering ----------
-  function buildRow() {
-    const row = document.createElement("div");
-    row.className = "cue-row";
-    row.innerHTML = `
+  // parsed once; each row is a cheap deep clone instead of an innerHTML parse
+  const rowTemplate = document.createElement("template");
+  rowTemplate.innerHTML = `<div class="cue-row">
       <div class="cue-row-head">
         <span class="cue-index"></span>
         <div class="cue-times">
@@ -339,7 +338,10 @@
         <div class="cue-text-mirror" aria-hidden="true"></div>
         <textarea class="cue-text" data-field="text" rows="1" spellcheck="true" aria-label="Subtitle text"></textarea>
       </div>
-    `;
+    </div>`;
+
+  function buildRow() {
+    const row = rowTemplate.content.firstElementChild.cloneNode(true);
     // cache child lookups once so later updates never re-query the DOM
     if (rowVisibility) rowVisibility.observe(row);
     row._refs = {
@@ -523,13 +525,27 @@
         i++;
       }
       if (i < total) {
-        requestAnimationFrame(step);
+        yieldThen(step);
       } else {
         reorderRows(cues);
       }
     }
 
-    requestAnimationFrame(step);
+    yieldThen(step);
+  }
+
+  // Yields to the browser (input, rendering) between batches without waiting
+  // for the next animation frame, so loading speed doesn't depend on the
+  // frame rate — on slow machines rAF-paced batches made big files crawl.
+  const yieldChannel = new MessageChannel();
+  const yieldQueue = [];
+  yieldChannel.port1.onmessage = () => {
+    const fn = yieldQueue.shift();
+    if (fn) fn();
+  };
+  function yieldThen(fn) {
+    yieldQueue.push(fn);
+    yieldChannel.port2.postMessage(null);
   }
 
   function setActiveCue(id) {

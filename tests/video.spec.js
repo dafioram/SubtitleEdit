@@ -26,6 +26,22 @@ test.beforeEach(async ({ page }) => {
   await page.setInputFiles("#input-video", clip);
   await expect(page.locator("#app")).not.toHaveClass(/no-video/);
   await expect(page.locator("#time-duration")).not.toHaveText("00:00:00,000");
+  // TEMPORARY diagnostics for the WebKit CI failure — remove once fixed
+  const diag = await page.evaluate(async () => {
+    const t0 = performance.now();
+    const frame = await Promise.race([
+      new Promise((r) => requestAnimationFrame(() => r("ok"))),
+      new Promise((r) => setTimeout(() => r("none in 3s"), 3000)),
+    ]);
+    const box = (el) => { const b = el.getBoundingClientRect(); return [b.x, b.y, b.width, b.height].map(Math.round); };
+    const r = document.querySelectorAll(".cue-row")[2];
+    return {
+      frame, frameMs: Math.round(performance.now() - t0),
+      row: box(r), index: box(r.querySelector(".cue-index")), cv: getComputedStyle(r).contentVisibility,
+      list: box(document.getElementById("cue-list")), pane: box(document.querySelector(".video-pane")), win: [innerWidth, innerHeight],
+    };
+  });
+  console.log("DIAG", test.info().project.name, JSON.stringify(diag));
 });
 
 test("clicking a cue seeks the video to it", async ({ page }) => {

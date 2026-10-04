@@ -43,6 +43,15 @@ test("with no video, each cue is laid out as a single row", async ({ page }) => 
   expect(Math.abs(text.y + text.height / 2 - (times.y + times.height / 2))).toBeLessThan(20);
 });
 
+test("rows stay visible and clickable after the list narrows", async ({ page }) => {
+  await openApp(page);
+  await loadSample(page);
+  // the same layout change as opening a video, without one
+  await page.evaluate(() => document.getElementById("app").classList.remove("no-video"));
+  await row(page, 2).locator(".cue-index").click();
+  await expect(row(page, 2)).toHaveClass(/primary/);
+});
+
 test("the editor panel is off by default and remembers being turned on", async ({ page }) => {
   await openApp(page);
   await loadSample(page);

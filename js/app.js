@@ -131,16 +131,24 @@
   const rowMap = new Map();
   let renderGeneration = 0;
   const CHUNK_THRESHOLD = 200; // only spread work across frames above this many new rows
-  const CHUNK_BUDGET_MS = 8; // time budget per frame while chunk-loading
+  const CHUNK_BUDGET_MS = 12; // time budget per batch while chunk-loading
 
   // Browsers with `field-sizing: content` grow each textarea to fit its
   // (wrapped) text in pure CSS; others need the JS measuring below.
   const FIELD_SIZING = !!(window.CSS && CSS.supports && CSS.supports("field-sizing", "content"));
 
+  // Safari and every iOS browser use WebKit; Chromium browsers also say
+  // "AppleWebKit" but add "Chrome/". Only used to avoid a WebKit rendering
+  // bug (see .skip-offscreen in styles.css) — not for feature support.
+  const IS_WEBKIT = /AppleWebKit\//.test(navigator.userAgent) && !/(Chrome|Chromium)\//.test(navigator.userAgent);
+
   // ---------- small helpers ----------
   function fitHeight(textarea) {
     const border = textarea.offsetHeight - textarea.clientHeight;
-    return textarea.scrollHeight + border;
+    // +1: scrollHeight is rounded to whole pixels, and with fractional line
+    // heights (13.5px × 1.4) Firefox can report it a pixel short, leaving a
+    // 1px overflow and a stray scrollbar
+    return textarea.scrollHeight + border + 1;
   }
 
   // Precise (forces layout) — only ever called for the single row a person is
@@ -317,10 +325,9 @@
   }
 
   // ---------- cue list rendering ----------
-  function buildRow() {
-    const row = document.createElement("div");
-    row.className = "cue-row";
-    row.innerHTML = `
+  // parsed once; each row is a cheap deep clone instead of an innerHTML parse
+  const rowTemplate = document.createElement("template");
+  rowTemplate.innerHTML = `<div class="cue-row">
       <div class="cue-row-head">
         <span class="cue-index"></span>
         <div class="cue-times">
@@ -336,7 +343,10 @@
         <div class="cue-text-mirror" aria-hidden="true"></div>
         <textarea class="cue-text" data-field="text" rows="1" spellcheck="true" aria-label="Subtitle text"></textarea>
       </div>
-    `;
+    </div>`;
+
+  function buildRow() {
+    const row = rowTemplate.content.firstElementChild.cloneNode(true);
     // cache child lookups once so later updates never re-query the DOM
     if (rowVisibility) rowVisibility.observe(row);
     row._refs = {
@@ -520,13 +530,27 @@
         i++;
       }
       if (i < total) {
-        requestAnimationFrame(step);
+        yieldThen(step);
       } else {
         reorderRows(cues);
       }
     }
 
-    requestAnimationFrame(step);
+    yieldThen(step);
+  }
+
+  // Yields to the browser (input, rendering) between batches without waiting
+  // for the next animation frame, so loading speed doesn't depend on the
+  // frame rate — on slow machines rAF-paced batches made big files crawl.
+  const yieldChannel = new MessageChannel();
+  const yieldQueue = [];
+  yieldChannel.port1.onmessage = () => {
+    const fn = yieldQueue.shift();
+    if (fn) fn();
+  };
+  function yieldThen(fn) {
+    yieldQueue.push(fn);
+    yieldChannel.port2.postMessage(null);
   }
 
   function setActiveCue(id) {
@@ -1892,6 +1916,10 @@
         els.zoomSlider.value = Math.round(px);
       },
     });
+
+    // timeline labels are drawn on a canvas, so redraw once the fonts arrive
+    if (document.fonts) document.fonts.ready.then(() => timeline.render());
+    if (!IS_WEBKIT) els.cueList.classList.add("skip-offscreen");
 
     wireToolbar();
     wireVideo();

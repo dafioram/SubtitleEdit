@@ -1,0 +1,12 @@
+{
+  "name": "caption-subtitle-editor",
+  "private": true,
+  "description": "Browser-based subtitle editor. The site itself has no build step or dependencies; this file only exists for the end-to-end tests.",
+  "scripts": {
+    "test": "playwright test",
+    "serve": "python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}

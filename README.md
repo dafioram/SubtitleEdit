@@ -1,20 +1,36 @@
 # Caption — a browser-based subtitle editor
 
 A static, no-build-step subtitle editor that runs entirely in the browser. Load a video,
-import an `.srt` file, and edit timing and text against a waveform timeline. Nothing is
-uploaded anywhere — the video and subtitles never leave your machine.
+import an `.srt`, `.vtt`, `.ass` or `.ssa` file, and edit timing and text against a waveform
+timeline. Nothing is uploaded anywhere — the video and subtitles never leave your machine.
 
 ## Features
 
-- **Import/export** `.srt`, export also to `.vtt`
-- **Video playback** synced to the cue list and timeline, adjustable speed
+- **Import/export** SubRip (`.srt`), WebVTT (`.vtt`) and Advanced SubStation Alpha
+  (`.ass`/`.ssa`); open by button or by dropping files on the window
+- **Text encodings**: UTF-8/UTF-16 detection with a Windows-1252 fallback, plus a picker in
+  the status bar (Cyrillic, Central European, Greek, Turkish, Hebrew, Arabic, CJK, …) that
+  re-reads the file if accented letters look wrong
+- **Video playback** synced to the cue list and timeline, adjustable speed; the player is
+  hidden until a video is loaded so the cue list gets the whole width
 - **Waveform timeline** (best-effort, generated locally from the video's audio track) with
-  zoom, pan, a minimap, and draggable cue edges for precise timing
-- **Cue list** with inline text and timecode editing
-- **Add / delete / split / merge** cues, **shift timing** by a fixed offset, **find & replace**
+  zoom, mouse-wheel scrolling, a minimap, and draggable cue edges — works with or without a
+  video
+- **Cue list** with inline text and timecode editing, multi-select (Ctrl/Cmd-click,
+  Shift-click, Ctrl+A), a filter (all / with warnings / questionable / find matches), and an
+  optional larger editor panel with duration and line-length/reading-speed stats
+- **Add / delete / split / merge** cues (split works without a video by dividing the time
+  by text length), **shift timing** for all, selected, or "from here on" cues
+- **Find & replace** bar: match case, whole word, regular expressions (`$1` in
+  replacements), next/previous, replace one or all, highlighted matches
+- **Questionable text** (Tools menu): flags unusual characters such as `/` and `|` (the list
+  is editable), double spaces, stray spaces, repeated words, likely OCR errors, unbalanced
+  quotes/brackets/italic tags — underlined in the list and listed in a clickable report
+- **Fix common errors** (Tools menu): one-click, undoable clean-up of the above
 - **Quality checks**: overlapping cues, lines that are too long, too many lines, reading
   speed (characters/second), and minimum duration — thresholds are configurable
-- **Undo/redo**, full keyboard shortcuts (see the in-app `?` help panel)
+- **Undo/redo**, full keyboard shortcuts that also work while typing (see the in-app `?`
+  help panel); non-blocking notices with an Undo button instead of pop-up dialogs
 - **Autosave** to your browser's local storage, so a refresh won't lose your edits
 - **Light/dark theme**
 
@@ -62,10 +78,13 @@ css/styles.css
 js/
   utils.js       time/formatting helpers
   srt.js         .srt parsing + .srt/.vtt export
-  store.js       app state, undo/redo, settings
+  formats.js     encoding detection, format detection, .vtt/.ass parsing, .ass export
+  store.js       app state, selection, undo/redo, settings
   warnings.js    quality-check rules
+  checks.js      questionable-text detection and "fix common errors"
   waveform.js    audio decoding + waveform peaks
   timeline.js    canvas timeline, waveform + cue drawing, drag interactions
+  ui.js          toasts, modal dialogs, in-app confirm
   app.js         wires everything to the DOM
 sample/sample.srt
 ```
@@ -78,6 +97,10 @@ sample/sample.srt
 - Autosave stores your cues and settings in the browser's local storage on the device
   you're using. It does not store the video file itself (browsers can't persist arbitrary
   files that way) — reopen your video after a refresh and your cue edits will still be there.
+- ASS/SSA import keeps the text and italic/bold/underline; styles, positioning and other
+  override tags are dropped, and `.ass` export uses a single default style.
+- Spell checking is the browser's built-in checker (red underlines in the text boxes); there
+  is no bundled dictionary.
 - Built with vanilla HTML/CSS/JS; tested in current Chrome, Firefox, and Safari.
 
 ## License

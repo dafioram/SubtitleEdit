@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Caption — Subtitle Editor</title>
-<meta name="description" content="A browser-based subtitle editor. Load a video, import an .srt file, and edit timing and text with a synced waveform timeline.">
+<meta name="description" content="A browser-based subtitle editor. Load a video, import .srt, .vtt or .ass subtitles, and edit timing and text with a synced waveform timeline.">
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,17 +22,18 @@
 
     <div class="toolbar-group">
       <button id="btn-new" class="btn" title="New project">New</button>
-      <button id="btn-open-video" class="btn" title="Open a video file">Open Video</button>
-      <button id="btn-open-srt" class="btn" title="Open an .srt file">Open SRT</button>
+      <button id="btn-open-video" class="btn" title="Open a video file (or drop one on the window)">Open Video</button>
+      <button id="btn-open-srt" class="btn" title="Open a subtitle file: .srt, .vtt, .ass or .ssa (or drop one on the window)">Open Subtitle</button>
       <button id="btn-sample" class="btn btn-ghost" title="Load a sample .srt to try the editor">Try Sample</button>
     </div>
 
     <div class="toolbar-group">
       <div class="btn-menu">
-        <button id="btn-export" class="btn btn-accent" title="Export subtitles">Export ▾</button>
-        <div class="menu" id="export-menu">
-          <button type="button" data-format="srt">Export as .srt</button>
-          <button type="button" data-format="vtt">Export as .vtt</button>
+        <button id="btn-export" class="btn btn-accent" data-menu="export-menu" aria-haspopup="true" title="Export subtitles (Ctrl+S exports in the current format)">Export ▾</button>
+        <div class="menu" id="export-menu" role="menu">
+          <button type="button" data-format="srt" role="menuitem">Export as .srt</button>
+          <button type="button" data-format="vtt" role="menuitem">Export as .vtt</button>
+          <button type="button" data-format="ass" role="menuitem">Export as .ass</button>
         </div>
       </div>
       <button id="btn-undo" class="icon-btn" title="Undo (Ctrl+Z)" disabled aria-label="Undo">
@@ -44,12 +45,21 @@
     </div>
 
     <div class="toolbar-group">
-      <button id="btn-add" class="btn" title="Add cue at playhead (Enter)">+ Cue</button>
-      <button id="btn-split" class="btn" title="Split selected cue at playhead">Split</button>
-      <button id="btn-merge" class="btn" title="Merge selected cue with the next one">Merge</button>
-      <button id="btn-delete" class="btn btn-danger" title="Delete selected cue (Del)">Delete</button>
-      <button id="btn-shift" class="btn" title="Shift timing">Shift Time</button>
-      <button id="btn-find" class="btn" title="Find &amp; replace">Find &amp; Replace</button>
+      <button id="btn-add" class="btn" title="Add cue (Ctrl+Enter or Insert)">+ Cue</button>
+      <button id="btn-split" class="btn" title="Split selected cue at the playhead, or in half by text if the playhead isn't inside it">Split</button>
+      <button id="btn-merge" class="btn" title="Merge the selected cues, or the selected cue with the next one">Merge</button>
+      <button id="btn-delete" class="btn btn-danger" title="Delete selected cue(s) (Delete)">Delete</button>
+      <button id="btn-find" class="btn" title="Find &amp; replace (Ctrl+F)">Find &amp; Replace</button>
+      <div class="btn-menu">
+        <button id="btn-tools" class="btn" data-menu="tools-menu" aria-haspopup="true">Tools ▾</button>
+        <div class="menu" id="tools-menu" role="menu">
+          <button type="button" data-tool="questionable" role="menuitem">Questionable text…</button>
+          <button type="button" data-tool="fix" role="menuitem">Fix common errors…</button>
+          <button type="button" data-tool="shift" role="menuitem">Shift timing…</button>
+          <div class="menu-sep" role="separator"></div>
+          <button type="button" data-tool="settings" role="menuitem">Quality-check settings…</button>
+        </div>
+      </div>
     </div>
 
     <div class="toolbar-group toolbar-end">
@@ -64,8 +74,8 @@
     </div>
   </header>
 
-  <input type="file" id="input-video" accept="video/*" hidden>
-  <input type="file" id="input-srt" accept=".srt,text/plain" hidden>
+  <input type="file" id="input-video" accept="video/*,audio/*,.mkv" hidden>
+  <input type="file" id="input-srt" accept=".srt,.vtt,.ass,.ssa,.txt,text/plain,text/vtt" hidden>
 
   <main class="workspace">
     <section class="video-pane">
@@ -77,7 +87,7 @@
         </div>
       </div>
       <div class="transport">
-        <button id="btn-play" class="icon-btn transport-play" title="Play / pause (Space)" aria-label="Play">
+        <button id="btn-play" class="icon-btn transport-play" title="Play / pause (Space, or Ctrl+Space while typing)" aria-label="Play">
           <svg class="icon-play" viewBox="0 0 24 24" width="18" height="18"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
           <svg class="icon-pause" viewBox="0 0 24 24" width="18" height="18" hidden><path d="M6 5h4v14H6zM14 5h4v14h-4z" fill="currentColor"/></svg>
         </button>
@@ -95,12 +105,62 @@
       </div>
     </section>
 
-    <aside class="cue-pane">
+    <aside class="cue-pane" id="cue-pane">
       <div class="cue-pane-header">
         <h2>Cues <span id="cue-count" class="count-badge">0</span></h2>
         <span id="warning-summary" class="warning-summary"></span>
+        <label class="list-filter">Show
+          <select id="list-filter">
+            <option value="all">All cues</option>
+            <option value="warnings">With warnings</option>
+            <option value="questionable">Questionable text</option>
+            <option value="matches">Find matches</option>
+          </select>
+        </label>
+        <button id="btn-toggle-editor" class="btn btn-small" aria-pressed="false" title="Show or hide the editing panel under the list">Editor</button>
       </div>
+
+      <div class="find-bar" id="find-bar" hidden>
+        <div class="find-row">
+          <input type="text" id="find-text" placeholder="Find" spellcheck="false" aria-label="Find">
+          <span id="find-count" class="find-count" role="status"></span>
+          <button type="button" id="find-prev" class="icon-btn small" title="Previous match (Shift+Enter / Shift+F3)" aria-label="Previous match">&uarr;</button>
+          <button type="button" id="find-next" class="icon-btn small" title="Next match (Enter / F3)" aria-label="Next match">&darr;</button>
+          <button type="button" id="find-close" class="icon-btn small" title="Close (Esc)" aria-label="Close find">&times;</button>
+        </div>
+        <div class="find-row">
+          <input type="text" id="replace-text" placeholder="Replace with" spellcheck="false" aria-label="Replace with">
+          <button type="button" id="replace-one" class="btn btn-small" title="Replace the current match and go to the next">Replace</button>
+          <button type="button" id="replace-all" class="btn btn-small">Replace all</button>
+        </div>
+        <div class="find-options">
+          <label><input type="checkbox" id="find-case"> Match case</label>
+          <label><input type="checkbox" id="find-word"> Whole word</label>
+          <label title="JavaScript regular expression; use $1, $2… in the replacement"><input type="checkbox" id="find-regex"> Regex</label>
+          <label><input type="checkbox" id="find-only"> Only show matching cues</label>
+        </div>
+      </div>
+
+      <p class="filter-empty" id="filter-empty" hidden></p>
       <div class="cue-list" id="cue-list"></div>
+
+      <div class="cue-editor" id="cue-editor">
+        <div class="cue-editor-head">
+          <span class="cue-editor-label" id="editor-label">No cue selected</span>
+          <label>Start <input type="text" class="time-input" id="editor-start" data-field="start" spellcheck="false"></label>
+          <label>End <input type="text" class="time-input" id="editor-end" data-field="end" spellcheck="false"></label>
+          <label>Duration <input type="text" class="time-input dur-input" id="editor-duration" data-field="duration" spellcheck="false" title="Seconds, e.g. 2.5"></label>
+          <span class="cue-editor-nav">
+            <button type="button" id="editor-prev" class="icon-btn small" title="Previous cue (Alt+↑)" aria-label="Previous cue">&uarr;</button>
+            <button type="button" id="editor-next" class="icon-btn small" title="Next cue (Alt+↓)" aria-label="Next cue">&darr;</button>
+          </span>
+        </div>
+        <div class="cue-text-wrap editor-text-wrap">
+          <div class="cue-text-mirror" aria-hidden="true"></div>
+          <textarea id="editor-text" class="cue-text editor-text" data-field="text" rows="3" spellcheck="true" aria-label="Selected cue text"></textarea>
+        </div>
+        <div class="editor-stats" id="editor-stats"></div>
+      </div>
     </aside>
   </main>
 
@@ -111,6 +171,7 @@
         <input type="range" id="zoom-slider" min="4" max="400" value="60" aria-label="Timeline zoom">
         <button id="zoom-in" class="icon-btn small" aria-label="Zoom in">+</button>
       </div>
+      <span class="muted small timeline-hint">Scroll wheel to move · Ctrl+wheel to zoom · drag cue edges to retime</span>
       <span id="waveform-status" class="muted small"></span>
     </div>
     <div class="timeline-canvas-wrap">
@@ -123,11 +184,25 @@
 
   <footer class="statusbar">
     <span id="status-file">No project loaded</span>
+    <label class="encoding-control" title="Text encoding used to read the subtitle file. Change it if accented letters look wrong — the file is re-read.">Encoding
+      <select id="encoding-select"></select>
+    </label>
     <span id="status-autosave" class="muted"></span>
   </footer>
 </div>
 
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
 <div class="modal-overlay" id="modal-overlay" hidden>
+
+  <div class="modal" id="modal-confirm" hidden role="alertdialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+    <div class="modal-head"><h3 id="confirm-title">Are you sure?</h3><button class="modal-close icon-btn small" aria-label="Close">&times;</button></div>
+    <div class="modal-body"><p id="confirm-message"></p></div>
+    <div class="modal-foot">
+      <button class="btn modal-close">Cancel</button>
+      <button class="btn btn-accent" id="confirm-ok">OK</button>
+    </div>
+  </div>
 
   <div class="modal" id="modal-settings" hidden>
     <div class="modal-head"><h3>Quality-check settings</h3><button class="modal-close icon-btn small" aria-label="Close">&times;</button></div>
@@ -160,7 +235,8 @@
       <fieldset class="field-radio">
         <legend>Apply to</legend>
         <label><input type="radio" name="shift-scope" id="shift-scope-all" value="all" checked> All cues</label>
-        <label><input type="radio" name="shift-scope" id="shift-scope-selected" value="selected"> Selected cue only</label>
+        <label><input type="radio" name="shift-scope" id="shift-scope-selected" value="selected"> Selected cues only</label>
+        <label><input type="radio" name="shift-scope" id="shift-scope-after" value="after"> Selected cue and everything after it</label>
       </fieldset>
     </div>
     <div class="modal-foot">
@@ -169,40 +245,73 @@
     </div>
   </div>
 
-  <div class="modal" id="modal-find" hidden>
-    <div class="modal-head"><h3>Find &amp; replace</h3><button class="modal-close icon-btn small" aria-label="Close">&times;</button></div>
+  <div class="modal modal-xwide" id="modal-questionable" hidden>
+    <div class="modal-head"><h3>Questionable text</h3><button class="modal-close icon-btn small" aria-label="Close">&times;</button></div>
     <div class="modal-body">
-      <label class="field">Find
-        <input type="text" id="find-text" placeholder="Text to find">
+      <p class="muted small">Flags characters and patterns that are usually typos or OCR mistakes. Flagged text is also underlined in the cue list.</p>
+      <label class="field">Characters to flag
+        <input type="text" id="q-chars" spellcheck="false" class="mono-input">
       </label>
-      <label class="field">Replace with
-        <input type="text" id="replace-text" placeholder="Replacement text">
-      </label>
-      <label class="checkbox-field"><input type="checkbox" id="find-case-sensitive"> Match case</label>
-      <p id="find-result" class="muted small" role="status"></p>
+      <div class="check-grid" id="q-rules"></div>
+      <p class="q-summary" id="q-summary"></p>
+      <ul class="result-list" id="q-results"></ul>
     </div>
     <div class="modal-foot">
+      <button class="btn" id="q-reset" title="Restore the default characters and checks">Reset</button>
+      <button class="btn" id="q-fix">Fix common errors…</button>
+      <span class="modal-foot-spacer"></span>
       <button class="btn modal-close">Close</button>
-      <button class="btn btn-accent" id="find-replace-all">Replace All</button>
+      <button class="btn btn-accent" id="q-show">Show only these in the list</button>
+    </div>
+  </div>
+
+  <div class="modal modal-wide" id="modal-fix" hidden>
+    <div class="modal-head"><h3>Fix common errors</h3><button class="modal-close icon-btn small" aria-label="Close">&times;</button></div>
+    <div class="modal-body">
+      <p class="muted small">Choose what to fix. The number shows how many cues each fix would change. Everything can be undone with Ctrl+Z.</p>
+      <div class="fix-list" id="fix-list"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn modal-close">Cancel</button>
+      <button class="btn btn-accent" id="fix-apply">Apply fixes</button>
     </div>
   </div>
 
   <div class="modal modal-wide" id="modal-help" hidden>
     <div class="modal-head"><h3>Keyboard shortcuts</h3><button class="modal-close icon-btn small" aria-label="Close">&times;</button></div>
     <div class="modal-body">
+      <h4 class="shortcut-heading">Work everywhere, even while typing</h4>
+      <dl class="shortcut-list">
+        <div><dt>Ctrl + Space</dt><dd>Play / pause</dd></div>
+        <div><dt>Alt + &uarr; / &darr;</dt><dd>Previous / next cue</dd></div>
+        <div><dt>Ctrl/Cmd + Enter</dt><dd>Add cue</dd></div>
+        <div><dt>Ctrl/Cmd + Z</dt><dd>Undo</dd></div>
+        <div><dt>Ctrl/Cmd + Shift + Z, Ctrl + Y</dt><dd>Redo</dd></div>
+        <div><dt>Ctrl/Cmd + F</dt><dd>Find &amp; replace</dd></div>
+        <div><dt>F3 / Shift + F3</dt><dd>Next / previous match</dd></div>
+        <div><dt>Ctrl/Cmd + S</dt><dd>Export in the current format</dd></div>
+        <div><dt>Esc</dt><dd>Leave the text box / close dialog</dd></div>
+      </dl>
+      <h4 class="shortcut-heading">When not typing</h4>
       <dl class="shortcut-list">
         <div><dt>Space</dt><dd>Play / pause</dd></div>
         <div><dt>&larr; / &rarr;</dt><dd>Seek 1s (Shift: 5s)</dd></div>
         <div><dt>&uarr; / &darr;</dt><dd>Select previous / next cue</dd></div>
         <div><dt>Alt + &larr; / &rarr;</dt><dd>Nudge selected cue's start by 50ms</dd></div>
         <div><dt>Alt + Shift + &larr; / &rarr;</dt><dd>Nudge selected cue's end by 50ms</dd></div>
-        <div><dt>Enter</dt><dd>Add cue at playhead</dd></div>
-        <div><dt>Delete / Backspace</dt><dd>Delete selected cue</dd></div>
-        <div><dt>Ctrl/Cmd + Z</dt><dd>Undo</dd></div>
-        <div><dt>Ctrl/Cmd + Shift + Z</dt><dd>Redo</dd></div>
-        <div><dt>Ctrl/Cmd + S</dt><dd>Export .srt</dd></div>
-        <div><dt>Ctrl/Cmd + scroll on timeline</dt><dd>Zoom timeline</dd></div>
+        <div><dt>Enter</dt><dd>Edit the selected cue's text</dd></div>
+        <div><dt>Insert</dt><dd>Add cue</dd></div>
+        <div><dt>Delete</dt><dd>Delete selected cue(s) — undo from the notice</dd></div>
+        <div><dt>Ctrl/Cmd + A</dt><dd>Select all cues</dd></div>
         <div><dt>?</dt><dd>Show this help</dd></div>
+      </dl>
+      <h4 class="shortcut-heading">Mouse</h4>
+      <dl class="shortcut-list">
+        <div><dt>Ctrl/Cmd + click</dt><dd>Add or remove a cue from the selection</dd></div>
+        <div><dt>Shift + click</dt><dd>Select a range of cues</dd></div>
+        <div><dt>Wheel on timeline</dt><dd>Scroll through time</dd></div>
+        <div><dt>Ctrl/Cmd + wheel on timeline</dt><dd>Zoom</dd></div>
+        <div><dt>Drop a file on the window</dt><dd>Open a video or subtitle file</dd></div>
       </dl>
     </div>
     <div class="modal-foot">
@@ -214,10 +323,13 @@
 
 <script src="js/utils.js"></script>
 <script src="js/srt.js"></script>
+<script src="js/formats.js"></script>
 <script src="js/store.js"></script>
 <script src="js/warnings.js"></script>
+<script src="js/checks.js"></script>
 <script src="js/waveform.js"></script>
 <script src="js/timeline.js"></script>
+<script src="js/ui.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

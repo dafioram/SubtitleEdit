@@ -137,6 +137,11 @@
   // (wrapped) text in pure CSS; others need the JS measuring below.
   const FIELD_SIZING = !!(window.CSS && CSS.supports && CSS.supports("field-sizing", "content"));
 
+  // Safari and every iOS browser use WebKit; Chromium browsers also say
+  // "AppleWebKit" but add "Chrome/". Only used to avoid a WebKit rendering
+  // bug (see .skip-offscreen in styles.css) — not for feature support.
+  const IS_WEBKIT = /AppleWebKit\//.test(navigator.userAgent) && !/(Chrome|Chromium)\//.test(navigator.userAgent);
+
   // ---------- small helpers ----------
   function fitHeight(textarea) {
     const border = textarea.offsetHeight - textarea.clientHeight;
@@ -1914,6 +1919,7 @@
 
     // timeline labels are drawn on a canvas, so redraw once the fonts arrive
     if (document.fonts) document.fonts.ready.then(() => timeline.render());
+    if (!IS_WEBKIT) els.cueList.classList.add("skip-offscreen");
 
     wireToolbar();
     wireVideo();

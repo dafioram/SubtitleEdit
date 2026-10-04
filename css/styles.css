@@ -294,8 +294,12 @@ p { margin: 0 0 8px; }
   margin-bottom: 8px;
   background: var(--panel);
   cursor: default;
-  /* skip layout/paint for rows scrolled out of view — with thousands of
-     auto-sizing textareas this is most of the cost of every update */
+}
+/* Skip layout/paint for rows scrolled out of view — with thousands of
+   auto-sizing textareas this is most of the cost of every update. Opt-in
+   class set by app.js everywhere except WebKit: there, once a <video> is on
+   the page, on-screen rows stayed skipped and the list rendered blank. */
+.cue-list.skip-offscreen .cue-row {
   content-visibility: auto;
   contain-intrinsic-size: auto 72px;
 }

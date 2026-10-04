@@ -294,6 +294,10 @@ p { margin: 0 0 8px; }
   margin-bottom: 8px;
   background: var(--panel);
   cursor: default;
+  /* skip layout/paint for rows scrolled out of view — with thousands of
+     auto-sizing textareas this is most of the cost of every update */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
 }
 .cue-row.selected { border-left-color: var(--accent); background: var(--panel-alt); }
 .cue-row.primary { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }

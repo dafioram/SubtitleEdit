@@ -25,6 +25,12 @@ const Timeline = (function () {
     let waveform = null;
     let dpr = window.devicePixelRatio || 1;
     let dragState = null;
+    // Canvas sizes are cached from resize() (driven by a ResizeObserver).
+    // Reading clientWidth during render() would force a synchronous layout of
+    // the whole page — with a long cue list that cost ~100ms per keystroke.
+    let viewW = 0;
+    let miniW = 0;
+    let renderQueued = false;
     let colors = readColors();
 
     function readColors() {
@@ -39,6 +45,8 @@ const Timeline = (function () {
         accentContrast: cs.getPropertyValue("--accent-contrast").trim() || "#14151a",
         danger: cs.getPropertyValue("--danger").trim() || "#e15b4d",
         playhead: cs.getPropertyValue("--text").trim() || "#ececed",
+        fontMono: cs.getPropertyValue("--font-mono").trim() || "monospace",
+        fontUi: cs.getPropertyValue("--font-ui").trim() || "sans-serif",
       };
     }
 
@@ -48,7 +56,7 @@ const Timeline = (function () {
     }
 
     function viewDurationSec() {
-      return canvas.clientWidth / pxPerSecond;
+      return viewW / pxPerSecond;
     }
 
     function timeToX(sec) {
@@ -137,12 +145,14 @@ const Timeline = (function () {
     function resize() {
       dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth || canvas.parentElement.clientWidth;
+      viewW = w;
       canvas.width = Math.max(1, Math.round(w * dpr));
       canvas.height = Math.max(1, Math.round(CANVAS_H * dpr));
       canvas.style.height = CANVAS_H + "px";
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const mw = minimap.clientWidth || minimap.parentElement.clientWidth;
+      miniW = mw;
       minimap.width = Math.max(1, Math.round(mw * dpr));
       minimap.height = Math.max(1, Math.round(28 * dpr));
       minimap.style.height = "28px";
@@ -152,8 +162,18 @@ const Timeline = (function () {
       render();
     }
 
+    // coalesces bursts of store changes (e.g. typing) into one draw per frame
+    function requestRender() {
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        render();
+      });
+    }
+
     function render() {
-      const W = canvas.clientWidth;
+      const W = viewW;
       ctx.clearRect(0, 0, W, CANVAS_H);
 
       // background
@@ -178,7 +198,7 @@ const Timeline = (function () {
 
       const step = niceStep();
       const firstTick = Math.floor(scrollOffsetSec / step) * step;
-      ctx.font = "10px " + (getComputedStyle(document.documentElement).getPropertyValue("--font-mono") || "monospace");
+      ctx.font = "10px " + colors.fontMono;
       ctx.fillStyle = colors.text;
       ctx.textBaseline = "middle";
 
@@ -280,7 +300,7 @@ const Timeline = (function () {
           ctx.rect(rx1 + 3, top, rw - 6, h);
           ctx.clip();
           ctx.fillStyle = colors.accentContrast;
-          ctx.font = "600 11px " + (getComputedStyle(document.documentElement).getPropertyValue("--font-ui") || "sans-serif");
+          ctx.font = "600 11px " + colors.fontUi;
           ctx.textBaseline = "middle";
           const label = (cue.text || "").split("\n")[0] || "(empty)";
           ctx.fillText(label, rx1 + 6, top + h / 2 + 1);
@@ -324,7 +344,7 @@ const Timeline = (function () {
     }
 
     function drawMinimap() {
-      const W = minimap.clientWidth;
+      const W = miniW;
       const H = 28;
       mctx.clearRect(0, 0, W, H);
       mctx.fillStyle = colors.bg;
@@ -515,7 +535,7 @@ const Timeline = (function () {
     ro.observe(canvas.parentElement);
     ro.observe(minimap.parentElement);
 
-    Store.subscribe(() => render());
+    Store.subscribe(requestRender);
 
     resize();
 

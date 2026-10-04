@@ -124,7 +124,7 @@
   let listFilter = "all";
   let qCache = new WeakMap(); // cue object -> questionable findings (cue objects are immutable)
 
-  const find = { re: null, error: "", matches: [], byCue: new Map(), current: -1 };
+  const find = { re: null, error: "", matches: [], byCue: new Map(), current: -1, stale: false };
 
   // id -> row element, persisted across renders so unaffected rows are never
   // recreated (keeps focus/scroll intact and avoids rebuilding huge lists)
@@ -155,10 +155,31 @@
   // which left long cues clipped inside a too-short box. Queued textareas are
   // measured together once per frame (all writes, then all reads, then all
   // writes) so a large list costs one reflow rather than one per row.
+  // Rows scrolled out of view are skipped (CSS content-visibility) and only
+  // measured once they come near the viewport, so opening a long file doesn't
+  // force a layout of every row.
   const pendingSize = new Set();
   let sizeFrame = null;
+  const rowVisibility = FIELD_SIZING
+    ? null
+    : new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            const row = entry.target;
+            row._nearView = entry.isIntersecting;
+            if (row._nearView && row._refs.text._needsSize) queueSize(row._refs.text);
+          });
+        },
+        { root: document.getElementById("cue-list"), rootMargin: "400px 0px" }
+      );
   function queueSize(textarea) {
     if (FIELD_SIZING) return;
+    const row = textarea.closest(".cue-row");
+    if (row && !row._nearView) {
+      textarea._needsSize = true; // sized when it scrolls into view
+      return;
+    }
+    textarea._needsSize = false;
     pendingSize.add(textarea);
     if (!sizeFrame) sizeFrame = requestAnimationFrame(flushSizes);
   }
@@ -317,6 +338,7 @@
       </div>
     `;
     // cache child lookups once so later updates never re-query the DOM
+    if (rowVisibility) rowVisibility.observe(row);
     row._refs = {
       index: row.querySelector(".cue-index"),
       start: row.querySelector('[data-field="start"]'),
@@ -343,43 +365,53 @@
     }
   }
 
+  // Every store change re-runs this for every row, so it only touches the DOM
+  // when a value actually differs. Rewriting unchanged text/values on 2000
+  // rows invalidated the whole list's layout and made each keystroke ~200ms.
+  function setText(el, v) {
+    if (el._text !== v) el.textContent = el._text = v;
+  }
+  function setProp(el, prop, v) {
+    if (el[prop] !== v) el[prop] = v;
+  }
+
   function updateRowContent(row, cue, index, issues, initial) {
     const refs = row._refs;
     const q = qFor(cue);
-    row.dataset.id = cue.id;
+    if (row.dataset.id !== cue.id) row.dataset.id = cue.id;
     row.classList.toggle("selected", Store.isSelected(cue.id));
     row.classList.toggle("primary", cue.id === Store.getSelected());
     row.classList.toggle("has-warning", issues.length > 0);
     row.classList.toggle("active", cue.id === activePlayingId);
-    refs.index.textContent = index + 1;
+    setText(refs.index, String(index + 1));
 
     if (initial || document.activeElement !== refs.start) {
-      refs.start.value = Utils.msToTimecode(cue.start, ",");
+      setProp(refs.start, "value", Utils.msToTimecode(cue.start, ","));
       refs.start.classList.remove("invalid");
     }
     if (initial || document.activeElement !== refs.end) {
-      refs.end.value = Utils.msToTimecode(cue.end, ",");
+      setProp(refs.end, "value", Utils.msToTimecode(cue.end, ","));
       refs.end.classList.remove("invalid");
     }
 
-    refs.duration.textContent = Utils.readableDuration(cue.end - cue.start);
+    setText(refs.duration, Utils.readableDuration(cue.end - cue.start));
 
-    refs.dot.hidden = !issues.length;
-    refs.dot.title = issues.join("; ");
-    refs.qdot.hidden = !q.length;
-    refs.qdot.title = q.length ? "Questionable: " + uniqueLabels(q).join("; ") : "";
+    setProp(refs.dot, "hidden", !issues.length);
+    setProp(refs.dot, "title", issues.join("; "));
+    setProp(refs.qdot, "hidden", !q.length);
+    setProp(refs.qdot, "title", q.length ? "Questionable: " + uniqueLabels(q).join("; ") : "");
 
-    if (initial || document.activeElement !== refs.text) {
+    if ((initial || document.activeElement !== refs.text) && refs.text.value !== (cue.text || "")) {
       refs.text.value = cue.text || "";
       // Cheap sizing from line count; wrapped lines are handled by CSS
       // field-sizing or the batched queueSize() fallback.
-      refs.text.rows = Math.max(1, Utils.lines(cue.text || "").length);
+      setProp(refs.text, "rows", Math.max(1, Utils.lines(cue.text || "").length));
       queueSize(refs.text);
     }
     setMirror(refs.mirror, cue.text || "", highlightsFor(cue));
 
     // a row someone is typing in never vanishes mid-edit because of a filter
-    row.hidden = !cueMatchesFilter(cue, issues) && !row.contains(document.activeElement);
+    setProp(row, "hidden", !cueMatchesFilter(cue, issues) && !row.contains(document.activeElement));
   }
 
   function computeAllIssues(cues, settings) {
@@ -596,7 +628,8 @@
     const field = el.dataset.field;
     if (field === "text") {
       if (el.closest(".cue-row")) autoGrow(el);
-      Store.updateCue(id, { text: el.value }, { record: false });
+      typingId = id;
+      Store.updateCue(id, { text: el.value }, { record: false, reason: "text" });
     } else if (field === "duration") {
       const sec = parseFloat(el.value.replace(",", "."));
       if (isFinite(sec) && sec > 0) {
@@ -673,11 +706,27 @@
     }
   }, 800);
 
+  // Typing only changes one cue's text, which can't change any other row, so
+  // that row is updated at once and the list-wide pass (counts, filter) runs
+  // once typing pauses. Keeps keystrokes fast on feature-length files.
+  let typingId = null;
+  const renderListSoon = Utils.debounce(() => renderCueList(), 250);
+
+  function renderTypedRow(id) {
+    const cues = Store.getCues();
+    const i = cues.findIndex((c) => c.id === id);
+    const row = rowMap.get(id);
+    if (i === -1 || !row) return false;
+    updateRowContent(row, cues[i], i, Warnings.compute(cues[i], i, cues, Store.getSettings()), false);
+    return true;
+  }
+
   function onStoreChange(reason) {
     if (reason === "settings") qCache = new WeakMap();
     if (reason === "selection" || reason === "add") playheadFromTimeline = false;
     if (reason !== "selection" && !els.findBar.hidden) recomputeFind();
-    renderCueList();
+    if (reason === "text" && renderTypedRow(typingId)) renderListSoon();
+    else renderCueList();
     renderEditor();
     if (isModalShown("modal-questionable")) renderQResults();
     if (reason !== "selection") scheduleAutosave();
@@ -1197,6 +1246,7 @@
   }
 
   function findStep(dir) {
+    if (flushFind()) return; // Enter/F3 pressed before the search ran: that search lands on the first match
     const n = find.matches.length;
     if (!n) return;
     let i;
@@ -1229,6 +1279,7 @@
 
   function closeFind() {
     els.findBar.hidden = true;
+    find.stale = false;
     find.re = null;
     find.matches = [];
     find.byCue = new Map();
@@ -1243,13 +1294,29 @@
   function onFindQueryChange() {
     find.current = -1;
     recomputeFind();
-    renderCueList();
-    renderEditor();
-    // jump to the first match at or after the selection, as browsers do
+    // jump to the first match at or after the selection, as browsers do;
+    // the selection change re-renders the list, so only render otherwise
     if (find.matches.length) findStep(1);
+    else {
+      renderCueList();
+      renderEditor();
+    }
+  }
+
+  // re-highlighting thousands of rows on every letter is wasted work —
+  // search once typing in the find box pauses
+  const onFindTyping = Utils.debounce(() => flushFind(), 150);
+
+  // runs a search that is still waiting on the debounce; true if it ran
+  function flushFind() {
+    if (!find.stale) return false;
+    find.stale = false;
+    onFindQueryChange();
+    return true;
   }
 
   function replaceCurrent() {
+    flushFind();
     const m = find.matches[find.current];
     if (!m) {
       findStep(1);
@@ -1315,7 +1382,10 @@
   function wireFind() {
     els.btnFind.addEventListener("click", () => (els.findBar.hidden ? openFind() : els.findText.focus()));
     els.findClose.addEventListener("click", closeFind);
-    els.findText.addEventListener("input", onFindQueryChange);
+    els.findText.addEventListener("input", () => {
+      find.stale = true;
+      onFindTyping();
+    });
     [els.findCase, els.findWord, els.findRegex].forEach((cb) => cb.addEventListener("change", onFindQueryChange));
     els.findOnly.addEventListener("change", () => setFilter(els.findOnly.checked ? "matches" : "all"));
     els.findNext.addEventListener("click", () => findStep(1));

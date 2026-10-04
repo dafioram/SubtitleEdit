@@ -140,7 +140,10 @@
   // ---------- small helpers ----------
   function fitHeight(textarea) {
     const border = textarea.offsetHeight - textarea.clientHeight;
-    return textarea.scrollHeight + border;
+    // +1: scrollHeight is rounded to whole pixels, and with fractional line
+    // heights (13.5px × 1.4) Firefox can report it a pixel short, leaving a
+    // 1px overflow and a stray scrollbar
+    return textarea.scrollHeight + border + 1;
   }
 
   // Precise (forces layout) — only ever called for the single row a person is

@@ -25,6 +25,12 @@ const Timeline = (function () {
     let waveform = null;
     let dpr = window.devicePixelRatio || 1;
     let dragState = null;
+    // Canvas sizes are cached from resize() (driven by a ResizeObserver).
+    // Reading clientWidth during render() would force a synchronous layout of
+    // the whole page — with a long cue list that cost ~100ms per keystroke.
+    let viewW = 0;
+    let miniW = 0;
+    let renderQueued = false;
     let colors = readColors();
 
     function readColors() {
@@ -39,6 +45,8 @@ const Timeline = (function () {
         accentContrast: cs.getPropertyValue("--accent-contrast").trim() || "#14151a",
         danger: cs.getPropertyValue("--danger").trim() || "#e15b4d",
         playhead: cs.getPropertyValue("--text").trim() || "#ececed",
+        fontMono: cs.getPropertyValue("--font-mono").trim() || "monospace",
+        fontUi: cs.getPropertyValue("--font-ui").trim() || "sans-serif",
       };
     }
 
@@ -48,7 +56,7 @@ const Timeline = (function () {
     }
 
     function viewDurationSec() {
-      return canvas.clientWidth / pxPerSecond;
+      return viewW / pxPerSecond;
     }
 
     function timeToX(sec) {
@@ -58,8 +66,17 @@ const Timeline = (function () {
       return scrollOffsetSec + x / pxPerSecond;
     }
 
+    // Scrollable length: the video if there is one, but never shorter than the
+    // subtitles themselves — without a video `duration` is 0, which used to pin
+    // the view at 0:00 so wheel/minimap scrolling did nothing.
+    function contentDuration() {
+      let lastEnd = 0;
+      for (const c of Store.getCues()) if (c.end > lastEnd) lastEnd = c.end;
+      return Math.max(duration, lastEnd ? lastEnd / 1000 + 2 : 0);
+    }
+
     function clampScroll() {
-      const maxStart = Math.max(0, duration - viewDurationSec() * 0.1);
+      const maxStart = Math.max(0, contentDuration() - viewDurationSec() * 0.1);
       scrollOffsetSec = Utils.clamp(scrollOffsetSec, 0, Math.max(0, maxStart));
     }
 
@@ -128,12 +145,14 @@ const Timeline = (function () {
     function resize() {
       dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth || canvas.parentElement.clientWidth;
+      viewW = w;
       canvas.width = Math.max(1, Math.round(w * dpr));
       canvas.height = Math.max(1, Math.round(CANVAS_H * dpr));
       canvas.style.height = CANVAS_H + "px";
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const mw = minimap.clientWidth || minimap.parentElement.clientWidth;
+      miniW = mw;
       minimap.width = Math.max(1, Math.round(mw * dpr));
       minimap.height = Math.max(1, Math.round(28 * dpr));
       minimap.style.height = "28px";
@@ -143,8 +162,18 @@ const Timeline = (function () {
       render();
     }
 
+    // coalesces bursts of store changes (e.g. typing) into one draw per frame
+    function requestRender() {
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        render();
+      });
+    }
+
     function render() {
-      const W = canvas.clientWidth;
+      const W = viewW;
       ctx.clearRect(0, 0, W, CANVAS_H);
 
       // background
@@ -169,7 +198,7 @@ const Timeline = (function () {
 
       const step = niceStep();
       const firstTick = Math.floor(scrollOffsetSec / step) * step;
-      ctx.font = "10px " + (getComputedStyle(document.documentElement).getPropertyValue("--font-mono") || "monospace");
+      ctx.font = "10px " + colors.fontMono;
       ctx.fillStyle = colors.text;
       ctx.textBaseline = "middle";
 
@@ -237,7 +266,7 @@ const Timeline = (function () {
 
     function drawCueTrack(W) {
       const cues = Store.getCues();
-      const selectedId = Store.getSelected();
+      const primaryId = Store.getSelected();
       const settings = Store.getSettings();
 
       for (let i = 0; i < cues.length; i++) {
@@ -247,7 +276,8 @@ const Timeline = (function () {
 
         const issues = Warnings.compute(cue, i, cues, settings);
         const hasWarning = issues.length > 0;
-        const isSelected = cue.id === selectedId;
+        const isSelected = Store.isSelected(cue.id);
+        const isPrimary = cue.id === primaryId;
 
         const rx1 = Math.max(-2, x1);
         const rx2 = Math.min(W + 2, x2);
@@ -270,7 +300,7 @@ const Timeline = (function () {
           ctx.rect(rx1 + 3, top, rw - 6, h);
           ctx.clip();
           ctx.fillStyle = colors.accentContrast;
-          ctx.font = "600 11px " + (getComputedStyle(document.documentElement).getPropertyValue("--font-ui") || "sans-serif");
+          ctx.font = "600 11px " + colors.fontUi;
           ctx.textBaseline = "middle";
           const label = (cue.text || "").split("\n")[0] || "(empty)";
           ctx.fillText(label, rx1 + 6, top + h / 2 + 1);
@@ -285,7 +315,7 @@ const Timeline = (function () {
         }
 
         // resize handles for selected cue
-        if (isSelected && rw > 12) {
+        if (isPrimary && rw > 12) {
           ctx.fillStyle = colors.accentContrast;
           ctx.globalAlpha = 0.9;
           ctx.fillRect(rx1 + 1, top + 2, 3, h - 4);
@@ -314,7 +344,7 @@ const Timeline = (function () {
     }
 
     function drawMinimap() {
-      const W = minimap.clientWidth;
+      const W = miniW;
       const H = 28;
       mctx.clearRect(0, 0, W, H);
       mctx.fillStyle = colors.bg;
@@ -322,8 +352,9 @@ const Timeline = (function () {
       mctx.strokeStyle = colors.border;
       mctx.strokeRect(0.5, 0.5, W - 1, H - 1);
 
-      if (duration <= 0) return;
-      const pxPerSecMini = W / duration;
+      const total = contentDuration();
+      if (total <= 0) return;
+      const pxPerSecMini = W / total;
       const cues = Store.getCues();
       mctx.fillStyle = colors.accent;
       mctx.globalAlpha = 0.7;
@@ -334,7 +365,7 @@ const Timeline = (function () {
       });
       mctx.globalAlpha = 1;
 
-      const vd = Math.min(duration, viewDurationSec());
+      const vd = Math.min(total, viewDurationSec());
       const vx1 = scrollOffsetSec * pxPerSecMini;
       const vx2 = (scrollOffsetSec + vd) * pxPerSecMini;
       mctx.fillStyle = colors.text;
@@ -396,6 +427,14 @@ const Timeline = (function () {
       } else {
         const cue = Store.getCue(hit.cueId);
         if (!cue) return;
+        if (evt.ctrlKey || evt.metaKey) {
+          Store.toggleSelect(cue.id);
+          return;
+        }
+        if (evt.shiftKey) {
+          Store.selectRange(cue.id);
+          return;
+        }
         Store.select(cue.id);
         onCueActivate(cue.id);
         Store.pushHistory();
@@ -473,10 +512,11 @@ const Timeline = (function () {
     function onMinimapPointer(evt) {
       const rect = minimap.getBoundingClientRect();
       const x = evt.clientX - rect.left;
-      const pxPerSecMini = rect.width / (duration || 1);
+      const total = contentDuration();
+      const pxPerSecMini = rect.width / (total || 1);
       const t = x / pxPerSecMini;
       const vd = viewDurationSec();
-      scrollOffsetSec = Utils.clamp(t - vd / 2, 0, Math.max(0, duration - vd * 0.1));
+      scrollOffsetSec = Utils.clamp(t - vd / 2, 0, Math.max(0, total - vd * 0.1));
       render();
     }
 
@@ -495,7 +535,7 @@ const Timeline = (function () {
     ro.observe(canvas.parentElement);
     ro.observe(minimap.parentElement);
 
-    Store.subscribe(() => render());
+    Store.subscribe(requestRender);
 
     resize();
 

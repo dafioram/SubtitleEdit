@@ -6,6 +6,8 @@
   const AUTOSAVE_KEY = "subtitle-editor-autosave-v1";
 
   const els = {
+    app: $("app"),
+
     // toolbar
     btnNew: $("btn-new"),
     btnOpenVideo: $("btn-open-video"),
@@ -88,12 +90,42 @@
   const CHUNK_THRESHOLD = 200; // only spread work across frames above this many new rows
   const CHUNK_BUDGET_MS = 8; // time budget per frame while chunk-loading
 
+  // Browsers with `field-sizing: content` grow each textarea to fit its
+  // (wrapped) text in pure CSS; others need the JS measuring below.
+  const FIELD_SIZING = !!(window.CSS && CSS.supports && CSS.supports("field-sizing", "content"));
+
   // ---------- small helpers ----------
+  function fitHeight(textarea) {
+    const border = textarea.offsetHeight - textarea.clientHeight;
+    return textarea.scrollHeight + border;
+  }
+
   // Precise (forces layout) — only ever called for the single row a person is
   // actively typing into, never in a bulk loop.
   function autoGrow(textarea) {
+    if (FIELD_SIZING) return;
     textarea.style.height = "auto";
-    textarea.style.height = textarea.scrollHeight + "px";
+    textarea.style.height = fitHeight(textarea) + "px";
+  }
+
+  // Fallback sizing for bulk renders: line count alone misses lines that wrap,
+  // which left long cues clipped inside a too-short box. Queued textareas are
+  // measured together once per frame (all writes, then all reads, then all
+  // writes) so a large list costs one reflow rather than one per row.
+  const pendingSize = new Set();
+  let sizeFrame = null;
+  function queueSize(textarea) {
+    if (FIELD_SIZING) return;
+    pendingSize.add(textarea);
+    if (!sizeFrame) sizeFrame = requestAnimationFrame(flushSizes);
+  }
+  function flushSizes() {
+    sizeFrame = null;
+    const list = [...pendingSize].filter((t) => t.isConnected);
+    pendingSize.clear();
+    list.forEach((t) => (t.style.height = "auto"));
+    const heights = list.map(fitHeight);
+    list.forEach((t, i) => (t.style.height = heights[i] + "px"));
   }
 
   function downloadText(filename, content, mime) {
@@ -206,6 +238,7 @@
       // typing into a row (see the "input" handler in wireCueList), so bulk
       // renders never force a synchronous reflow per row.
       refs.text.rows = Math.max(1, Utils.lines(cue.text || "").length);
+      queueSize(refs.text);
     }
   }
 
@@ -369,12 +402,19 @@
   }
 
   // ---------- video ----------
+  // Without a video the player pane is hidden so the cue list gets the full
+  // width instead of sitting beside an empty black box.
+  function setHasVideo(has) {
+    els.app.classList.toggle("no-video", !has);
+  }
+
   async function openVideoFile(file) {
     const url = URL.createObjectURL(file);
     videoEl.src = url;
     videoEl.load();
     currentVideoName = file.name;
     updateStatusFile();
+    setHasVideo(true);
     els.videoEmpty.hidden = true;
     els.waveformStatus.textContent = "";
     if (timeline) timeline.setWaveform(null);
@@ -422,6 +462,14 @@
       const file = e.target.files[0];
       if (file) openVideoFile(file);
       e.target.value = "";
+    });
+
+    videoEl.addEventListener("error", () => {
+      if (!videoEl.getAttribute("src")) return;
+      setHasVideo(false);
+      currentVideoName = null;
+      updateStatusFile();
+      alert("That video could not be played. Your browser may not support its format or codec.");
     });
 
     videoEl.addEventListener("loadedmetadata", () => {
@@ -907,6 +955,18 @@
     wireVideo();
     wireCueList();
     wireKeyboard();
+
+    // fallback sizing depends on the list's width, which changes when the
+    // window resizes or the video pane appears/disappears
+    if (!FIELD_SIZING) {
+      let lastWidth = 0;
+      new ResizeObserver(([entry]) => {
+        const w = Math.round(entry.contentRect.width);
+        if (w === lastWidth) return;
+        lastWidth = w;
+        rowMap.forEach((row) => queueSize(row._refs.text));
+      }).observe(els.cueList);
+    }
 
     Store.subscribe(onStoreChange);
     tryRestoreAutosave();

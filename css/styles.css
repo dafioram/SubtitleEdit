@@ -179,10 +179,13 @@ p { margin: 0 0 8px; }
 /* ===== Workspace ===== */
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(0, 1.4fr) minmax(340px, 1fr);
   min-height: 0;
   border-bottom: 1px solid var(--border-soft);
 }
+/* no video loaded: drop the player and give the cue list the full width */
+.no-video .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.no-video .video-pane { display: none; }
 .video-pane {
   display: flex;
   flex-direction: column;
@@ -245,7 +248,7 @@ p { margin: 0 0 8px; }
 }
 
 /* ===== Cue pane ===== */
-.cue-pane { display: flex; flex-direction: column; min-height: 0; }
+.cue-pane { display: flex; flex-direction: column; min-height: 0; container-type: inline-size; }
 .cue-pane-header {
   display: flex;
   align-items: baseline;
@@ -268,7 +271,7 @@ p { margin: 0 0 8px; }
 .cue-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 10px 16px;
+  padding: 4px 12px 16px;
 }
 .cue-list:empty::after {
   content: "No subtitles yet — open an .srt file or add a cue to get started.";
@@ -285,8 +288,8 @@ p { margin: 0 0 8px; }
   border: 1px solid var(--border-soft);
   border-left: 3px solid transparent;
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  margin-bottom: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
   background: var(--panel);
   cursor: default;
 }
@@ -299,7 +302,7 @@ p { margin: 0 0 8px; }
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .cue-index {
   font-family: var(--font-mono);
@@ -356,6 +359,7 @@ p { margin: 0 0 8px; }
   resize: none;
   overflow-x: hidden;
   overflow-y: auto;
+  field-sizing: content; /* grow to fit wrapped text; JS fallback elsewhere */
   min-height: 34px;
   background: var(--panel-alt);
   border: 1px solid var(--border);
@@ -364,6 +368,26 @@ p { margin: 0 0 8px; }
   padding: 7px 9px;
   font-size: 13.5px;
   line-height: 1.4;
+}
+
+/* Wide list (e.g. no video loaded): one row per cue, SubtitleEdit-style —
+   number, times and duration in fixed columns, text filling the rest. */
+@container (min-width: 680px) {
+  .cue-row {
+    display: grid;
+    grid-template-columns: 24px auto 52px 15px minmax(0, 1fr) 24px;
+    column-gap: 12px;
+    align-items: center;
+    padding: 8px 12px;
+  }
+  .cue-row-head { display: contents; }
+  .cue-row-head > *, .cue-text { grid-row: 1; }
+  .cue-index { grid-column: 1; min-width: 0; text-align: right; }
+  .cue-times { grid-column: 2; }
+  .cue-duration { grid-column: 3; margin-left: 0; }
+  .warning-dot { grid-column: 4; }
+  .cue-text { grid-column: 5; }
+  .row-delete { grid-column: 6; margin-left: 0; }
 }
 
 /* ===== Timeline ===== */
